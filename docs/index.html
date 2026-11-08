@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USB 无线调试工具 — 网页版</title>
+<style>
+  :root{
+    --bg:#0f131a; --panel:#161b22; --panel2:#1e252e; --line:#2a3340;
+    --txt:#e6edf3; --dim:#8b949e; --accent:#2f81f7; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.6}
+  .wrap{max-width:980px;margin:0 auto;padding:26px 18px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px}
+  h1{font-size:22px;margin:0 0 6px;letter-spacing:.3px}
+  .sub{color:var(--dim);font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .badge{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
+  .badge.ok{color:var(--ok);border-color:#1f4a2a}
+  .badge.err{color:var(--err);border-color:#4a1f1f}
+  .badge.warn{color:var(--warn);border-color:#4a3c1f}
+  button{
+    background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:9px;
+    padding:10px 16px;font-size:13px;cursor:pointer;transition:.15s;font-family:inherit
+  }
+  button:hover:not(:disabled){border-color:var(--accent);background:#232c38}
+  button:disabled{opacity:.42;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);font-weight:600}
+  button.primary:hover:not(:disabled){background:#4a92f8}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  input[type=text],input[type=number]{
+    background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:9px;padding:9px 12px;font-size:13px;font-family:inherit;width:100%
+  }
+  input:focus{outline:none;border-color:var(--accent)}
+  .mono{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:12px}
+  #log{
+    background:#0a0d12;border:1px solid var(--line);border-radius:10px;padding:14px;
+    height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all;
+    font-family:Consolas,"SF Mono",Menlo,monospace;font-size:12px;line-height:1.65;color:#c9d1d9
+  }
+  .l-ok{color:var(--ok)} .l-err{color:var(--err)} .l-step{color:var(--accent)} .l-warn{color:var(--warn)} .l-dim{color:var(--dim)}
+  .kv{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;font-size:13px}
+  .kv b{color:var(--dim);font-weight:400}
+  .cmd{
+    background:#0a0d12;border:1px solid var(--line);border-radius:9px;padding:10px 12px;
+    font-family:Consolas,monospace;font-size:12.5px;color:var(--ok);margin-top:10px;word-break:break-all
+  }
+  .note{color:var(--dim);font-size:12.5px;margin-top:10px;line-height:1.7}
+  .warnbox{background:#2a2110;border:1px solid #4a3c1f;color:#e3b341;border-radius:10px;padding:12px 14px;font-size:12.5px;margin-bottom:16px}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:0}
+  .steps li{counter-increment:s;position:relative;padding-left:30px;margin-bottom:9px;font-size:13px;color:var(--dim)}
+  .steps li::before{
+    content:counter(s);position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;
+    background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    font-size:11px;display:flex;align-items:center;justify-content:center
+  }
+  a{color:var(--accent)}
+  .dl{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:12px 18px;text-decoration:none;color:var(--txt);font-size:13px}
+  .dl:hover{border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>USB 无线调试工具</h1>
+    <div class="sub">在浏览器里直接和手机说 ADB 协议 —— 开开发者选项、开 USB 调试、开无线调试，一条龙。</div>
+  </header>
+
+  <div class="warnbox">
+    <b>需要桌面版 Chrome / Edge</b>（WebUSB 仅 Chromium 系桌面版支持，手机浏览器不行；也不能嵌在 iframe 里）。
+    iOS 全部浏览器、Firefox、Safari 都不支持。
+  </div>
+
+  <div class="card">
+    <h2>① 连接手机 <span class="badge" id="badgeUsb">未连接</span></h2>
+    <div class="row">
+      <button class="primary" id="btnConnect">选择 USB 设备并连接</button>
+      <button id="btnDisconnect" disabled>断开</button>
+    </div>
+    <div class="kv" style="margin-top:14px">
+      <b>设备</b><span id="infoDevice" class="mono">—</span>
+      <b>ADB 横幅</b><span id="infoBanner" class="mono">—</span>
+      <b>最大包</b><span id="infoMax" class="mono">—</span>
+    </div>
+    <div class="note">
+      连接前请在手机上确认「USB 调试」已打开。首次连接手机会弹「允许 USB 调试吗」，勾选「一律允许」再点允许。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 一键全自动 <span class="badge" id="badgeAuto">待执行</span></h2>
+    <div class="grid">
+      <div>
+        <label class="sub">TCP 端口</label>
+        <input type="number" id="port" value="5555" min="1024" max="65535">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="primary" id="btnAuto" disabled style="width:100%">★ 开发者模式 → USB调试 → 无线调试</button>
+      </div>
+    </div>
+    <div class="cmd" id="cmdOut" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <h2>③ 单项操作</h2>
+    <div class="grid">
+      <button data-cmd="settings put global development_settings_enabled 1" disabled>开开发者选项</button>
+      <button data-cmd="settings put global adb_enabled 1" disabled>开 USB 调试</button>
+      <button data-cmd="settings put global adb_wifi_enabled 1" disabled>开无线调试开关</button>
+      <button data-cmd="svc wifi enable" disabled>打开 Wi-Fi</button>
+      <button data-cmd="ip -f inet addr show wlan0" disabled>读取 WLAN IP</button>
+      <button data-cmd="getprop service.adb.tls.port" disabled>读无线调试端口</button>
+      <button data-cmd="getprop ro.build.version.release; getprop ro.build.version.sdk; getprop ro.product.model" disabled>读系统信息</button>
+      <button data-cmd="getprop ro.debuggable; getprop ro.adb.secure; settings get global adb_enabled" disabled>读调试状态</button>
+    </div>
+    <div class="note">这些按钮走的是 <span class="mono">adb shell</span> 通道。写 <span class="mono">settings put</span> 需要 shell 权限 —— 通过 USB 直连的 adb 本身就是 shell 权限，所以能生效。</div>
+  </div>
+
+  <div class="card">
+    <h2>④ 自定义命令</h2>
+    <div class="row">
+      <input type="text" id="customCmd" class="mono" placeholder="例如：pm list packages | head -20" style="flex:1;min-width:240px">
+      <button id="btnRunCustom" disabled>执行</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⑤ 运行日志 <span class="badge" id="badgeLog">0 行</span></h2>
+    <div id="log"><span class="l-dim">等待操作…</span></div>
+    <div class="row" style="margin-top:12px">
+      <button id="btnClear">清空</button>
+      <button id="btnCopy">复制日志</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⑥ Android App 版</h2>
+    <div class="note" style="margin-top:0;margin-bottom:12px">
+      想在手机上直接操作（不需要电脑、不需要数据线）：装下面的 APK。App 支持 root / Shizuku 两种提权方式，
+      在本机直接改调试开关、开 tcpip 端口、写 adb 授权公钥。
+    </div>
+    <a class="dl" href="download/ADBTool.apk" download>
+      ⬇ 下载 ADBTool.apk（44 KB）
+    </a>
+  </div>
+
+  <div class="card">
+    <h2>怎么用</h2>
+    <ol class="steps">
+      <li>手机用数据线连电脑，设置里打开「开发者选项」和「USB 调试」。</li>
+      <li>点上面「选择 USB 设备并连接」，在弹窗里选中你的手机。</li>
+      <li>手机弹出「允许 USB 调试吗」→ 勾「一律允许」→ 允许。连不上就拔插一次数据线重来。</li>
+      <li>点「一键全自动」，它会依次：开开发者选项 → 开 USB 调试 → 开 Wi-Fi → 读 IP → 开 5555 端口 → 读无线调试端口。</li>
+      <li>拿到 <span class="mono">adb connect IP:5555</span> 后，拔掉数据线，手机就在无线调试状态了。</li>
+    </ol>
+    <div class="note">
+      Android 11+ 的「无线调试」是 TLS + 配对码模式，网页端只能读出端口号，配对需要系统弹窗交互。
+      想要完全免配对，用 App 版在 root 环境下直接开传统 5555 端口。
+    </div>
+  </div>
+
+</div>
+
+<script src="adb-web.js"></script>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  let lineCount = 0;
+  let adb = null;
+
+  function stamp(){
+    const d = new Date();
+    return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  }
+  function log(text, cls){
+    if (lineCount === 0) logEl.innerHTML = '';
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.textContent = '['+stamp()+'] ' + text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    lineCount++;
+    $('badgeLog').textContent = lineCount + ' 行';
+  }
+  function setBadge(el, text, cls){
+    el.textContent = text;
+    el.className = 'badge' + (cls ? ' ' + cls : '');
+  }
+  function setEnabled(on){
+    document.querySelectorAll('button[data-cmd]').forEach(b => b.disabled = !on);
+    $('btnAuto').disabled = !on;
+    $('btnRunCustom').disabled = !on;
+    $('btnDisconnect').disabled = !on;
+  }
+
+  // ---------- 能力检测 ----------
+  if (!window.AdbWeb || !window.AdbWeb.supported()) {
+    setBadge($('badgeUsb'), '浏览器不支持', 'err');
+    $('btnConnect').disabled = true;
+    log('当前浏览器不支持 WebUSB。请用桌面版 Chrome 或 Edge 打开本页。', 'l-err');
+  } else {
+    log('WebUSB 可用，可以连接设备。', 'l-ok');
+  }
+
+  // ---------- 连接 ----------
+  $('btnConnect').addEventListener('click', async () => {
+    $('btnConnect').disabled = true;
+    try {
+      log('等待选择 USB 设备…', 'l-step');
+      const device = await AdbWeb.AdbConnection.pick();
+      log('已选设备：' + (device.productName || '未知') + ' / ' + (device.manufacturerName || ''), 'l-step');
+      setBadge($('badgeUsb'), '握手中', 'warn');
+
+      adb = new AdbWeb.AdbConnection(device, null, null, null);
+      await adb.open();
+      const banner = adb.banner || 'device::(握手完成)';
+
+      $('infoDevice').textContent = (device.manufacturerName||'') + ' ' + (device.productName||'') +
+        '  (VID '+device.vendorId+':'+device.productId+')';
+      $('infoBanner').textContent = banner;
+      $('infoMax').textContent = adb.maxData + ' bytes';
+      setBadge($('badgeUsb'), '已连接', 'ok');
+      log('ADB 握手成功：' + banner, 'l-ok');
+      setEnabled(true);
+      $('btnConnect').disabled = false;
+    } catch (e) {
+      setBadge($('badgeUsb'), '连接失败', 'err');
+      log('连接失败：' + (e && e.message ? e.message : e), 'l-err');
+      log('排查：① 手机已开 USB 调试 ② 换一根能传数据的线 ③ 拔插重试 ④ 手机上点「允许」', 'l-warn');
+      $('btnConnect').disabled = false;
+    }
+  });
+
+  $('btnDisconnect').addEventListener('click', async () => {
+    if (!adb) return;
+    try { await adb.close(); } catch(e){}
+    adb = null;
+    setEnabled(false);
+    $('btnConnect').disabled = false;
+    setBadge($('badgeUsb'), '未连接', '');
+    $('infoDevice').textContent = '—';
+    $('infoBanner').textContent = '—';
+    $('infoMax').textContent = '—';
+    log('已断开', 'l-dim');
+  });
+
+  // ---------- 单项命令 ----------
+  document.querySelectorAll('button[data-cmd]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!adb) return;
+      const cmd = btn.dataset.cmd;
+      btn.disabled = true;
+      log('$ ' + cmd, 'l-step');
+      try {
+        const out = await adb.shell(cmd);
+        (out || '(无输出)').trim().split('\n').forEach(l => log('  ' + l, 'l-dim'));
+      } catch (e) {
+        log('ERR: ' + e.message, 'l-err');
+      }
+      btn.disabled = false;
+    });
+  });
+
+  // ---------- 自定义 ----------
+  $('btnRunCustom').addEventListener('click', async () => {
+    if (!adb) return;
+    const cmd = $('customCmd').value.trim();
+    if (!cmd) return;
+    log('$ ' + cmd, 'l-step');
+    try {
+      const out = await adb.shell(cmd);
+      (out || '(无输出)').trim().split('\n').forEach(l => log('  ' + l, 'l-dim'));
+    } catch (e) {
+      log('ERR: ' + e.message, 'l-err');
+    }
+  });
+  $('customCmd').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('btnRunCustom').click();
+  });
+
+  // ---------- 一键全自动 ----------
+  $('btnAuto').addEventListener('click', async () => {
+    if (!adb) return;
+    const port = parseInt($('port').value, 10) || 5555;
+    $('btnAuto').disabled = true;
+    setBadge($('badgeAuto'), '执行中…', 'warn');
+    $('cmdOut').style.display = 'none';
+
+    const steps = [
+      ['开开发者选项', 'settings put global development_settings_enabled 1'],
+      ['校验开发者选项', 'settings get global development_settings_enabled'],
+      ['开 USB 调试', 'settings put global adb_enabled 1'],
+      ['校验 USB 调试', 'settings get global adb_enabled'],
+      ['打开 Wi-Fi', 'svc wifi enable'],
+      ['读 WLAN IP', 'ip -f inet addr show wlan0'],
+      ['开 TCP 端口', 'setprop service.adb.tcp.port ' + port],
+      ['重启 adbd', 'stop adbd; start adbd'],
+      ['读 TCP 端口', 'getprop service.adb.tcp.port'],
+      ['读无线调试端口', 'getprop service.adb.tls.port'],
+      ['读无线调试开关', 'settings get global adb_wifi_enabled'],
+      ['读系统版本', 'getprop ro.build.version.release'],
+    ];
+
+    let ip = '';
+    for (const [name, cmd] of steps) {
+      log('▸ ' + name, 'l-step');
+      try {
+        const out = await adb.shell(cmd, 12000);
+        const t = (out || '').trim();
+        if (t) t.split('\n').forEach(l => log('    ' + l, 'l-dim'));
+        else log('    (无输出)', 'l-dim');
+
+        if (name === '读 WLAN IP') {
+          const m = t.match(/inet\s+(\d+\.\d+\.\d+\.\d+)/);
+          if (m) ip = m[1];
+        }
+        if (name === '读 TCP 端口' && t && !t.includes(String(port))) {
+          log('    ⚠ 端口没写进去，可能是 ROM 限制，改用无线调试配对流程', 'l-warn');
+        }
+        if (name === '重启 adbd') {
+          log('    adbd 重启会把当前 USB 连接断掉，属正常', 'l-warn');
+          await new Promise(r => setTimeout(r, 2500));
+        }
+      } catch (e) {
+        log('    ERR: ' + e.message, 'l-err');
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+
+    if (ip) {
+      $('cmdOut').style.display = 'block';
+      $('cmdOut').textContent = 'adb connect ' + ip + ':' + port;
+      log('✔ 拿到无线地址：' + ip + ':' + port, 'l-ok');
+      log('现在可以拔掉数据线，在电脑终端执行上面的命令', 'l-ok');
+      setBadge($('badgeAuto'), '完成', 'ok');
+    } else {
+      log('✘ 没读到 WLAN IP：确认手机连着 Wi-Fi，且和电脑同一局域网', 'l-err');
+      setBadge($('badgeAuto'), 'IP 未取到', 'err');
+    }
+    $('btnAuto').disabled = false;
+  });
+
+  // ---------- 日志 ----------
+  $('btnClear').addEventListener('click', () => {
+    logEl.innerHTML = '<span class="l-dim">等待操作…</span>';
+    lineCount = 0;
+    $('badgeLog').textContent = '0 行';
+  });
+  $('btnCopy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(logEl.innerText);
+      log('日志已复制', 'l-ok');
+    } catch (e) {
+      log('复制失败：' + e.message, 'l-err');
+    }
+  });
+
+  // 设备断开事件
+  if (navigator.usb) {
+    navigator.usb.addEventListener('disconnect', (e) => {
+      if (adb && e.device === adb.device) {
+        log('USB 设备已拔出', 'l-warn');
+        adb = null;
+        setEnabled(false);
+        $('btnConnect').disabled = false;
+        setBadge($('badgeUsb'), '已断开', 'err');
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>

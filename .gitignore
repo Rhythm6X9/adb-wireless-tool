@@ -1,0 +1,7 @@
+﻿_build/
+work/
+out/
+*.log
+.gradle/
+build/
+local.properties
