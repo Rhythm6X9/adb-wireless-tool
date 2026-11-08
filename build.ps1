@@ -1,19 +1,19 @@
-﻿# =====================================================================
-#  直接调用 Android SDK 工具链构建 APK（不需要 Gradle / Android Studio）
-#  结构: C:\adbtool_env\{src, jdk17, sdk, libs, keystore}
+# =====================================================================
+#  build.ps1 —— 直接调用 Android SDK 工具链编译 APK（不需要 Gradle）
+#  结构：<root>\{repo\app\..., jdk17, sdk, libs, keystore}
 # =====================================================================
 $ErrorActionPreference = 'Stop'
-$env2 = if ($PSScriptRoot) { $PSScriptRoot } else { 'C:\adbtool_env' }
-$src  = Join-Path $env2 'src'
-$sdk  = Join-Path $env2 'sdk'
-$jdk  = Join-Path $env2 'jdk17'
-$libs = Join-Path $env2 'libs'
+$root = 'C:\adbtool_env'
+$src  = Join-Path $root 'repo'
+$sdk  = Join-Path $root 'sdk'
+$jdk  = Join-Path $root 'jdk17'
+$libs = Join-Path $root 'libs'
 $bt   = Join-Path $sdk 'build-tools\34.0.0'
 $ajr  = Join-Path $sdk 'platforms\android-34\android.jar'
-$ks   = Join-Path $env2 'keystore\release.keystore'
+$ks   = Join-Path $root 'keystore\release.keystore'
 
 foreach ($p in @($jdk, $sdk, $bt, $ajr, $ks)) {
-    if (-not (Test-Path $p)) { throw "missing build dependency: $p" }
+    if (-not (Test-Path $p)) { throw "missing: $p" }
 }
 
 $env:JAVA_HOME = $jdk
@@ -22,8 +22,8 @@ $env:PATH = (Join-Path $jdk 'bin') + ';' + $env:PATH
 $res     = Join-Path $src 'app\src\main\res'
 $man     = Join-Path $src 'app\src\main\AndroidManifest.xml'
 $javaDir = Join-Path $src 'app\src\main\java'
-$work    = Join-Path $env2 'work'
-$out     = Join-Path $env2 'out'
+$work    = Join-Path $root 'work'
+$out     = Join-Path $root 'out'
 
 foreach ($d in @($work, $out)) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force }
@@ -36,10 +36,13 @@ foreach ($d in @($gen, $cls, $dex)) { New-Item -ItemType Directory -Path $d -For
 
 $aapt2    = Join-Path $bt 'aapt2.exe'
 $javac    = Join-Path $jdk 'bin\javac.exe'
+$jar      = Join-Path $jdk 'bin\jar.exe'
 $d8       = Join-Path $bt 'd8.bat'
 $zipalign = Join-Path $bt 'zipalign.exe'
 $apksign  = Join-Path $bt 'apksigner.bat'
 $aapt     = Join-Path $bt 'aapt.exe'
+
+function ToFs([string]$p) { return $p.Replace('\', '/') }
 
 Write-Host '=== [1/6] aapt2 compile ==='
 $flat = Join-Path $gen 'res.zip'
@@ -50,7 +53,7 @@ Write-Host '=== [2/6] aapt2 link ==='
 $baseApk = Join-Path $gen 'base.apk'
 $jnigen  = Join-Path $gen 'gen'
 New-Item -ItemType Directory -Path $jnigen -Force | Out-Null
-& $aapt2 link -o $baseApk -I $ajr --manifest $man --java $jnigen --min-sdk-version 24 --target-sdk-version 34 --version-code 1 --version-name 1.0 --auto-add-overlay $flat
+& $aapt2 link -o $baseApk -I $ajr --manifest $man --java $jnigen --min-sdk-version 24 --target-sdk-version 34 --version-code 2 --version-name 2.0 --auto-add-overlay $flat
 if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed' }
 
 Write-Host '=== [3/6] javac ==='
@@ -58,7 +61,6 @@ $javaFiles = @(Get-ChildItem -Path $javaDir -Recurse -Filter *.java | ForEach-Ob
 $genFiles  = @(Get-ChildItem -Path $jnigen -Recurse -Filter *.java -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 Write-Host ("sources: {0} + generated {1}" -f $javaFiles.Count, $genFiles.Count)
 
-function ToFs([string]$p) { return $p.Replace('\', '/') }
 $cp = (@($ajr, (Join-Path $libs 'api-classes.jar'), (Join-Path $libs 'provider-classes.jar')) | ForEach-Object { ToFs $_ }) -join ';'
 $argFile = Join-Path $gen 'javac.args'
 $lines = New-Object System.Collections.ArrayList
@@ -76,7 +78,7 @@ if ($LASTEXITCODE -ne 0) { throw 'javac failed' }
 Write-Host '=== [4/6] d8 ==='
 $appJar = Join-Path $work 'app.jar'
 Push-Location $cls
-& (Join-Path $jdk 'bin\jar.exe') cf $appJar .
+& $jar cf $appJar .
 Pop-Location
 $allJars = @($appJar, (Join-Path $libs 'api-classes.jar'), (Join-Path $libs 'provider-classes.jar'))
 & $d8 --release --min-api 24 --output $dex --lib $ajr @allJars
